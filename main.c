@@ -7,12 +7,19 @@ void UART_Init(void);
 void USART1_IRQHandler(void);
 void DMA1_Channel1_IRQHandler(void);
 void DMA1_Channel4_IRQHandler(void);
+void DMA1_Channel5_IRQHandler(void);
 
-static uint16_t Mass[1001][4] = {0};
+static uint16_t MassTx[1001][4] = {0};
+static uint32_t CRCTx = 0;
+
+static uint16_t MassRx[1001][4] = {0};
+static uint32_t CRCRx = 0;
+
 static uint8_t UART_Data = 0;
 
 static uint32_t TestCRCMass[8] = {0xDEADBEEF, 0xAE864AFE, 0x12345678, 0x9ABCDEF0, 0xAAAAAAAA, 0x55555555, 0xCCCCCCCC, 0x33333333};
 static uint8_t TestUSARTMass[10] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9'};
+static uint8_t TestUSART[10];
 static uint32_t CRC32 = 0;
 
 int main(void)
@@ -73,11 +80,12 @@ void UART_Init(void)
 									GPIO_CRH_CNF10 | GPIO_CRH_MODE10);
 	GPIOA->CRH |= GPIO_CRH_CNF9_1 | GPIO_CRH_MODE9 |
 								GPIO_CRH_CNF10_1;
+	
+	NVIC_EnableIRQ(USART1_IRQn);																//Включение прерывания по USART1
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////	
 // Interrupt version
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////	
-//	NVIC_EnableIRQ(USART1_IRQn);																//Включение прерывания по USART1
 //	
 //	USART1->BRR = 0x271;																				//Подстройка бодрейта 115200 (Взято готовое из reference manual)
 //	USART1->CR1 = USART_CR1_M | USART_CR1_PCE | 
@@ -100,6 +108,18 @@ void UART_Init(void)
 	USART1->CR3 = USART_CR3_DMAT | USART_CR3_DMAR |
 								USART_CR3_EIE;
 	USART1->CR1 |= USART_CR1_UE;																//Включение USART1
+	
+	DMA1_Channel5->CCR = 	DMA_CCR1_PL_1 | DMA_CCR1_MINC |
+												DMA_CCR1_CIRC | DMA_CCR1_TEIE |
+												DMA_CCR1_TCIE;
+	DMA1_Channel5->CNDTR = 10;
+	DMA1_Channel5->CPAR = USART1_BASE + 0x4;
+	DMA1_Channel5->CMAR = (uint32_t)&TestUSART;
+	DMA1->IFCR = DMA_IFCR_CGIF4 | DMA_IFCR_CHTIF4 | DMA_IFCR_CTCIF4 | DMA_IFCR_CTEIF4;
+	
+	NVIC_EnableIRQ(DMA1_Channel5_IRQn);
+	
+	DMA1_Channel5->CCR |= DMA_CCR1_EN;
 	
 	DMA1_Channel4->CCR = 	DMA_CCR1_PL_1 | DMA_CCR1_MINC | 
 												DMA_CCR1_DIR | DMA_CCR1_TEIE | 
@@ -179,5 +199,31 @@ void DMA1_Channel4_IRQHandler(void)
 			break;
 		}
 		DMA1->IFCR = DMA_IFCR_CGIF4;
+	}
+}
+
+void DMA1_Channel5_IRQHandler(void)
+{
+	if (DMA1->ISR & DMA_ISR_GIF5)
+	{
+		switch (DMA1->ISR & (DMA_ISR_TEIF5 | /*DMA_ISR_HTIF5 |*/ DMA_ISR_TCIF5)){
+			case DMA_ISR_TEIF5:
+				DMA1->IFCR = DMA_IFCR_CTEIF4;
+			break;
+			
+			case DMA_ISR_HTIF5:
+				DMA1->IFCR = DMA_IFCR_CHTIF4;
+			break;
+			
+			case DMA_ISR_TCIF5:
+				DMA1->IFCR = DMA_IFCR_CTCIF4;
+
+			break;
+			
+			default:
+				
+			break;
+		}
+		DMA1->IFCR = DMA_IFCR_CGIF5;
 	}
 }
